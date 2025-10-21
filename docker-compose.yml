@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  ember-malware-detection:
+    build: .
+    container_name: ember-malware-detection
+    volumes:
+      - ./data:/workspace/data          # Mount thư mục data
+      - ./models:/workspace/models      # Mount thư mục models
+      - ./samples:/workspace/samples   # Mount thư mục samples
+    ports:
+      - "8080:8080"                    # Port cho API (nếu có)
+    environment:
+      - PYTHONPATH=/ember
+      - EMBER_DATA_DIR=/workspace/data
+    working_dir: /workspace
+    command: /bin/bash
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    
+  # Service cho API (tùy chọn)
+  ember-api:
+    build: .
+    container_name: ember-api
+    volumes:
+      - ./models:/workspace/models
+      - ./samples:/workspace/samples
+    ports:
+      - "8080:8080"
+    command: python /workspace/api_server.py
+    depends_on:
+      - ember-malware-detection
+    restart: unless-stopped
