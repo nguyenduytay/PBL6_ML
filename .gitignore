@@ -1,0 +1,30 @@
+# Data files - quá lớn cho GitHub
+data/ember2018/*.dat
+data/ember2018/*.h5
+data/ember2018/*.model
+data/ember2018/*.txt
+data/ember2018/*.pkl
+data/ember2018/*.npz
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Model files
+*.h5
+malconv/*.h5
+
+# Logs
+*.log
