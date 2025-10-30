@@ -29,10 +29,10 @@ class EmberTrainer:
     
     def __init__(self, project_root=None):
         self.project_root = Path(project_root) if project_root else Path.cwd()
-        # Sử dụng thư mục gốc cho EMBER
-        self.ember_dir = self.project_root.parent / "ember"
-        # Sửa đường dẫn dataset để trỏ đến thư mục gốc
-        self.data_dir = self.project_root.parent / "data" / "ember2018"
+        # Thư mục source `ember/` nằm DƯỚI project root
+        self.ember_dir = self.project_root / "ember"
+        # Dataset nằm trong `data/ember2018` DƯỚI project root
+        self.data_dir = self.project_root / "data" / "ember2018"
         self.model_path = self.project_root / "ember_model_pycharm.txt"
         
         logger.info(f"Project root: {self.project_root}")
@@ -151,12 +151,12 @@ class EmberTrainer:
         logger.info("EMBER source code da co san")
         logger.info("Su dung EMBER truc tiep tu source code...")
         
-        # Thêm đường dẫn ember vào sys.path
+        # Thêm project root vào sys.path để import `ember` từ source
         import sys
-        ember_path = str(self.ember_dir.parent)
-        if ember_path not in sys.path:
-            sys.path.insert(0, ember_path)
-            logger.info(f"Da them {ember_path} vao sys.path")
+        project_root_str = str(self.project_root)
+        if project_root_str not in sys.path:
+            sys.path.insert(0, project_root_str)
+            logger.info(f"Da them {project_root_str} vao sys.path")
         
         return True
     
@@ -204,9 +204,9 @@ class EmberTrainer:
         try:
             # Import EMBER từ source code
             import sys
-            ember_path = str(self.ember_dir.parent)
-            if ember_path not in sys.path:
-                sys.path.insert(0, ember_path)
+            project_root_str = str(self.project_root)
+            if project_root_str not in sys.path:
+                sys.path.insert(0, project_root_str)
             
             import ember
             import numpy as np
@@ -249,13 +249,13 @@ class EmberTrainer:
                 first_line = f.readline()
                 logger.info(f"Feature sample: {first_line[:100]}...")
         
-        # Kiểm tra xem đã có vectorized features chưa
-        vectorized_files = list(self.data_dir.glob("*_features.dat"))
-        if vectorized_files:
-            logger.info("Tim thay vectorized features da co san!")
-            logger.info("Su dung vectorized features co san...")
+        # Kiểm tra xem đã có vectorized features chưa (ưu tiên X_train/y_train)
+        x_train_path = self.data_dir / "X_train.dat"
+        y_train_path = self.data_dir / "y_train.dat"
+        if x_train_path.exists() and y_train_path.exists():
+            logger.info("Tim thay X_train.dat/y_train.dat, bo qua tao vectorized features")
         else:
-            logger.info("Khong tim thay vectorized features, tao moi...")
+            logger.info("Khong tim thay X_train.dat/y_train.dat, tao vectorized features moi...")
             start_time = time.time()
             try:
                 ember.create_vectorized_features(str(self.data_dir), feature_version=2)
