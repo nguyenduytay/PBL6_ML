@@ -5,6 +5,7 @@ data/ember2018/*.model
 data/ember2018/*.txt
 data/ember2018/*.pkl
 data/ember2018/*.npz
+data/ember2018/*.json
 
 # Python
 __pycache__/
