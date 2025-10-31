@@ -266,90 +266,33 @@ class EmberTrainer:
                 # Thử sử dụng dataset trực tiếp mà không tạo vectorized features
                 logger.info("Bo qua tao vectorized features, su dung dataset truc tiep...")
         
-        # Load data từ JSONL files
-        logger.info("Loading data...")
+        # Ưu tiên dùng vectorized features (memory-mapped) của EMBER để tiết kiệm RAM
+        logger.info("Loading vectorized features (memory-mapped)...")
         try:
-            import pandas as pd
-            import numpy as np
-            
-            # Load features từ JSONL files
-            feature_files = list(self.data_dir.glob("train_features_*.jsonl"))
-            if not feature_files:
-                logger.error("Khong tim thay train_features_*.jsonl files")
-                return None, None, None
-            
-            logger.info(f"Loading {len(feature_files)} feature files...")
-            
-            # Load tất cả features
-            all_features = []
-            all_labels = []
-            
-            for file_path in feature_files:
-                logger.info(f"Loading {file_path.name}...")
-                with open(file_path, 'r') as f:
-                    for line_num, line in enumerate(f):
-                        if line_num % 10000 == 0:
-                            logger.info(f"  Processed {line_num:,} lines...")
-                        
-                        try:
-                            data = json.loads(line.strip())
-                            
-                            # Extract features (bỏ qua sha256, md5)
-                            feature_dict = {k: v for k, v in data.items() if k not in ['sha256', 'md5']}
-                            all_features.append(feature_dict)
-                            
-                            # Tạo label giả (0 hoặc 1) dựa trên hash
-                            # Trong thực tế, label sẽ có trong metadata
-                            label = 1 if data.get('sha256', '')[-1] in '13579bdf' else 0
-                            all_labels.append(label)
-                            
-                        except json.JSONDecodeError as e:
-                            logger.warning(f"Loi parse JSON line {line_num}: {e}")
-                            continue
-                        except Exception as e:
-                            logger.warning(f"Loi process line {line_num}: {e}")
-                            continue
-            
-            if not all_features:
-                logger.error("Khong load duoc features nao")
-                return None, None, None
-            
-            # Convert to numpy arrays
-            logger.info("Converting features to numpy arrays...")
-            feature_names = list(all_features[0].keys())
-            logger.info(f"Feature names: {feature_names[:10]}... (total: {len(feature_names)})")
-            
-            # Tạo feature matrix
-            X = np.array([[f.get(name, 0) for name in feature_names] for f in all_features])
-            y = np.array(all_labels)
-            
-            logger.info(f"Dataset: {X.shape[0]:,} samples x {X.shape[1]:,} features")
-            logger.info(f"Labels: {np.sum(y)} malware, {len(y) - np.sum(y)} benign")
-            
+            X_train, y_train, X_test, y_test = ember.read_vectorized_features(
+                str(self.data_dir), feature_version=2
+            )
+            logger.info(f"Train: {X_train.shape[0]:,} samples")
+            logger.info(f"Test: {X_test.shape[0]:,} samples")
         except Exception as e:
-            logger.error(f"Loi load data: {e}")
+            logger.error(f"Khong the load vectorized features: {e}")
+            logger.error("Hay dam bao da chay create_vectorized_features thanh cong hoac dataset dung dinh dang.")
             return None, None, None
         
-        # Train/test split
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
-        
-        logger.info(f"Train: {X_train.shape[0]:,} samples")
-        logger.info(f"Test: {X_test.shape[0]:,} samples")
-        
-        # LightGBM parameters (tối ưu cho PyCharm)
+        # LightGBM parameters (tối ưu RAM/CPU)
         params = {
             'objective': 'binary',
             'metric': 'auc',
             'boosting_type': 'gbdt',
             'num_leaves': 31,
             'learning_rate': 0.05,
-            'feature_fraction': 0.9,
+            'feature_fraction': 0.8,
             'bagging_fraction': 0.8,
-            'bagging_freq': 5,
+            'bagging_freq': 1,
+            'min_data_in_leaf': 50,
+            'lambda_l2': 0.1,
             'verbose': 0,
-            'num_threads': 4,
+            'num_threads': max(1, (os.cpu_count() or 4) // 2),
             'force_col_wise': True  # Tối ưu cho dataset lớn
         }
         
@@ -358,14 +301,15 @@ class EmberTrainer:
         logger.info("Thoi gian du kien: 30-60 phut")
         
         try:
-            train_data = lgb.Dataset(X_train, label=y_train)
-            test_data = lgb.Dataset(X_test, label=y_test, reference=train_data)
+            # Dùng Dataset trực tiếp từ mảng memory-mapped để giảm copy
+            train_data = lgb.Dataset(X_train, label=y_train, free_raw_data=False)
+            test_data = lgb.Dataset(X_test, label=y_test, reference=train_data, free_raw_data=False)
             
             model = lgb.train(
                 params,
                 train_data,
                 valid_sets=[test_data],
-                num_boost_round=1000,
+                num_boost_round=500,
                 callbacks=[
                     lgb.early_stopping(50), 
                     lgb.log_evaluation(100)

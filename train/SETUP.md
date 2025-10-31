@@ -61,11 +61,46 @@ Sau khi chạy:
 
 ### 7) Sử dụng model đã train
 
-Ví dụ load model để inference:
+- Load model LightGBM và dùng trực tiếp:
 
 ```python
 import lightgbm as lgb
 model = lgb.Booster(model_file="train/ember_model_pycharm.txt")
+
+# Ví dụ: dự đoán xác suất malware cho ma trận đặc trưng X (numpy array)
+# y_prob = model.predict(X)
+```
+
+- Chấm điểm trực tiếp một file PE (.exe/.dll) bằng EMBER (tiện cho kiểm thử nhanh):
+
+```python
+import ember
+import lightgbm as lgb
+
+model = lgb.Booster(model_file="train/ember_model_pycharm.txt")
+score = ember.predict_sample(model, r"C:\\path\\to\\file.exe", feature_version=2)
+print("Malware score:", score)
+print("Prediction:", "Malware" if score > 0.5 else "Benign")
+```
+
+- Chấm điểm hàng loạt file trong một thư mục (ví dụ đơn giản):
+
+```python
+import os
+import ember
+import lightgbm as lgb
+
+model = lgb.Booster(model_file="train/ember_model_pycharm.txt")
+folder = r"C:\\samples"
+
+for name in os.listdir(folder):
+    path = os.path.join(folder, name)
+    if os.path.isfile(path):
+        try:
+            score = ember.predict_sample(model, path, feature_version=2)
+            print(name, score, "Malware" if score > 0.5 else "Benign")
+        except Exception as e:
+            print("Skip", name, e)
 ```
 
 ### 8) Troubleshooting
