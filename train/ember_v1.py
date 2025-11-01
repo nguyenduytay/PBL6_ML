@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-EMBER Training Script cho PyCharm
-Tối ưu cho PyCharm IDE với debugging và project management
-"""
 
 import os
 import sys
@@ -242,29 +238,107 @@ class EmberTrainer:
                 logger.info(f"Metadata sample: {first_line[:100]}...")
         
         # Kiểm tra file features
-        feature_files = list(self.data_dir.glob("train_features_*.jsonl"))
-        if feature_files:
-            logger.info(f"Tim thay {len(feature_files)} feature files")
-            with open(feature_files[0], 'r') as f:
-                first_line = f.readline()
-                logger.info(f"Feature sample: {first_line[:100]}...")
+        train_feature_files = sorted(list(self.data_dir.glob("train_features_*.jsonl")))
+        test_feature_file = self.data_dir / "test_features.jsonl"
         
-        # Kiểm tra xem đã có vectorized features chưa (ưu tiên X_train/y_train)
+        if not train_feature_files:
+            logger.error("Khong tim thay train_features_*.jsonl files")
+            return None, None, None
+        
+        if not test_feature_file.exists():
+            logger.error(f"Khong tim thay {test_feature_file.name}")
+            logger.error("Dataset EMBER2018 can co file test_features.jsonl")
+            return None, None, None
+        
+        logger.info(f"Tim thay {len(train_feature_files)} train feature files")
+        logger.info(f"Tim thay {test_feature_file.name}")
+        
+        # Kiểm tra format file chi tiết
+        logger.info("Kiem tra format file features...")
+        try:
+            with open(train_feature_files[0], 'r', encoding='utf-8') as f:
+                first_line = f.readline().strip()
+                if not first_line:
+                    logger.error("File rong hoac khong co du lieu")
+                    return None, None, None
+                sample = json.loads(first_line)
+                all_fields = list(sample.keys())
+                logger.info(f"Fields trong sample: {all_fields}")
+                
+                if 'label' not in sample:
+                    logger.error("File features KHONG co field 'label'!")
+                    logger.error("EMBER2018 features files CAN CO field 'label' trong moi record.")
+                    logger.error("Neu khong co, co the dataset bi sai hoac chua duoc xu ly dung.")
+                    return None, None, None
+                
+                # Kiểm tra các field cần thiết cho feature extractor (EMBER dùng tên ngắn, không phải tên class)
+                required_fields = ['histogram', 'byteentropy', 'general', 'header', 'section', 'imports', 'exports', 'strings']
+                missing_fields = [f for f in required_fields if f not in sample]
+                if missing_fields:
+                    logger.error(f"Thieu cac fields bat buoc: {missing_fields}")
+                    logger.error("Dataset EMBER2018 can co day du cac fields tren.")
+                    logger.error("Neu thieu, dataset co the khong dung hoac chua duoc extract dung.")
+                    return None, None, None
+                
+                # Kiểm tra format field 'section' - phải có 'entry' và 'sections'
+                if 'section' in sample and isinstance(sample['section'], dict):
+                    if 'entry' not in sample['section'] or 'sections' not in sample['section']:
+                        logger.error("Field 'section' phai co 'entry' va 'sections'")
+                        logger.error(f"Format hien tai: {list(sample['section'].keys())}")
+                        return None, None, None
+                    if not isinstance(sample['section']['entry'], str):
+                        logger.error(f"Field 'section.entry' phai la string, nhung nhan duoc: {type(sample['section']['entry'])}")
+                        return None, None, None
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"Loi parse JSON: {e}")
+            logger.error("File features khong dung dinh dang JSON")
+            return None, None, None
+        except Exception as e:
+            logger.error(f"Loi kiem tra format file: {e}")
+            return None, None, None
+        
+        # Kiểm tra xem đã có vectorized features đầy đủ chưa (cần cả train và test)
         x_train_path = self.data_dir / "X_train.dat"
         y_train_path = self.data_dir / "y_train.dat"
-        if x_train_path.exists() and y_train_path.exists():
-            logger.info("Tim thay X_train.dat/y_train.dat, bo qua tao vectorized features")
+        x_test_path = self.data_dir / "X_test.dat"
+        y_test_path = self.data_dir / "y_test.dat"
+        
+        has_all_vectorized = (
+            x_train_path.exists() and y_train_path.exists() and
+            x_test_path.exists() and y_test_path.exists()
+        )
+        
+        if has_all_vectorized:
+            logger.info("Tim thay day du vectorized features (train + test), bo qua tao moi")
         else:
-            logger.info("Khong tim thay X_train.dat/y_train.dat, tao vectorized features moi...")
+            missing = []
+            if not x_train_path.exists(): missing.append("X_train.dat")
+            if not y_train_path.exists(): missing.append("y_train.dat")
+            if not x_test_path.exists(): missing.append("X_test.dat")
+            if not y_test_path.exists(): missing.append("y_test.dat")
+            logger.info(f"Thieu vectorized features: {', '.join(missing)}")
+            logger.info("Tao vectorized features moi (co the mat 10-30 phut)...")
+            logger.info("Dang vectorize tu JSONL files sang numpy arrays...")
             start_time = time.time()
             try:
-                ember.create_vectorized_features(str(self.data_dir), feature_version=2)
-                logger.info(f"Vectorized features hoan thanh trong {time.time() - start_time:.2f} giay")
+                # Đảm bảo đường dẫn là string absolute
+                data_dir_str = str(self.data_dir.absolute())
+                logger.info(f"Data directory: {data_dir_str}")
+                ember.create_vectorized_features(data_dir_str, feature_version=2)
+                elapsed = time.time() - start_time
+                logger.info(f"✓ Vectorized features hoan thanh trong {elapsed/60:.1f} phut ({elapsed:.2f} giay)")
             except Exception as e:
-                logger.error(f"Loi tao features: {e}")
-                logger.info("Dataset co the da bi loi format. Thu su dung truc tiep...")
-                # Thử sử dụng dataset trực tiếp mà không tạo vectorized features
-                logger.info("Bo qua tao vectorized features, su dung dataset truc tiep...")
+                logger.error(f"✗ Loi tao features: {e}")
+                logger.error(f"Chi tiet loi: {type(e).__name__}: {str(e)}")
+                import traceback
+                logger.error(f"Traceback:\n{traceback.format_exc()}")
+                logger.error("\nKiem tra:")
+                logger.error(f"  1. File train_features_0.jsonl den train_features_5.jsonl co ton tai khong?")
+                logger.error(f"  2. File test_features.jsonl co ton tai khong?")
+                logger.error(f"  3. Cac file JSONL co dung dinh dang EMBER2018 khong?")
+                logger.error(f"  4. Co du RAM va disk space khong?")
+                return None, None, None
         
         # Ưu tiên dùng vectorized features (memory-mapped) của EMBER để tiết kiệm RAM
         logger.info("Loading vectorized features (memory-mapped)...")

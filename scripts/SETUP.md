@@ -122,3 +122,136 @@ python -c "import lief; print(lief.__version__)"
 ```
 
 Phải là `0.9.0` để tương thích với EMBER feature version 2.
+
+## 🎯 Sử Dụng Model Sau Khi Train
+
+Sau khi training thành công, model được lưu tại `ember_model_pycharm.txt` (hoặc `ember_model_2018.txt` nếu dùng script cũ).
+
+### Cách 1: Load Model và Dự Đoán Đơn Giản
+
+```python
+import ember
+import lightgbm as lgb
+
+# Load model đã train
+model = lgb.Booster(model_file="ember_model_pycharm.txt")
+
+# Đọc file PE và dự đoán
+file_path = r"C:\path\to\file.exe"
+with open(file_path, "rb") as f:
+    file_data = f.read()
+
+# Dự đoán (score từ 0-1, >0.5 = malware)
+score = ember.predict_sample(model, file_data, feature_version=2)
+print(f"Malware probability: {score:.4f}")
+print(f"Prediction: {'Malware' if score > 0.5 else 'Benign'}")
+```
+
+### Cách 2: Sử Dụng Script Có Sẵn
+
+EMBER có sẵn script `classify_binaries.py` để phân tích file:
+
+```bash
+python scripts/classify_binaries.py -m ember_model_pycharm.txt -v 2 file1.exe file2.exe
+```
+
+### Cách 3: Phân Tích Nhiều File Trong Thư Mục
+
+```python
+import os
+import ember
+import lightgbm as lgb
+
+# Load model
+model = lgb.Booster(model_file="ember_model_pycharm.txt")
+
+# Phân tích thư mục
+directory = r"C:\samples"
+results = []
+
+for filename in os.listdir(directory):
+    if filename.endswith(('.exe', '.dll', '.sys')):
+        file_path = os.path.join(directory, filename)
+        try:
+            with open(file_path, "rb") as f:
+                file_data = f.read()
+            score = ember.predict_sample(model, file_data, feature_version=2)
+
+            results.append({
+                'file': filename,
+                'score': score,
+                'prediction': 'Malware' if score > 0.5 else 'Benign'
+            })
+            print(f"{filename}: {results[-1]['prediction']} ({score:.4f})")
+        except Exception as e:
+            print(f"Error analyzing {filename}: {e}")
+
+# Lưu kết quả
+import pandas as pd
+df = pd.DataFrame(results)
+df.to_csv("malware_predictions.csv", index=False)
+```
+
+### Cách 4: Tích Hợp Vào API (Flask/FastAPI)
+
+**Ví dụ với Flask:**
+
+```python
+from flask import Flask, request, jsonify
+import ember
+import lightgbm as lgb
+
+app = Flask(__name__)
+model = lgb.Booster(model_file="ember_model_pycharm.txt")
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+
+    file = request.files['file']
+    file_data = file.read()
+
+    try:
+        score = ember.predict_sample(model, file_data, feature_version=2)
+        return jsonify({
+            'malware_probability': float(score),
+            'prediction': 'Malware' if score > 0.5 else 'Benign'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
+```
+
+### ⚙️ Tham Số Quan Trọng
+
+- **`feature_version=2`**: Luôn dùng version 2 (mặc định của EMBER2018)
+- **Score**: Giá trị từ 0.0 đến 1.0
+  - `score > 0.5`: Malware
+  - `score <= 0.5`: Benign
+- **File input**: Phải là file PE hợp lệ (.exe, .dll, .sys, v.v.)
+
+### 📊 Kết Quả Training Mẫu
+
+Với dataset EMBER2018, model đạt:
+
+- **Accuracy**: ~94%
+- **Precision**: ~98%
+- **Recall**: ~90%
+- **F1-Score**: ~94%
+- **AUC**: ~0.99
+
+### 🔍 Kiểm Tra Model
+
+```python
+import lightgbm as lgb
+
+# Load model
+model = lgb.Booster(model_file="ember_model_pycharm.txt")
+
+# Xem thông tin model
+print(f"Number of trees: {model.num_trees()}")
+print(f"Number of features: {model.num_feature()}")
+```

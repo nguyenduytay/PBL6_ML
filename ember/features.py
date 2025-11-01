@@ -189,9 +189,11 @@ class SectionInfo(FeatureType):
         section_entropy_hashed = FeatureHasher(50, input_type="pair").transform([section_entropy]).toarray()[0]
         section_vsize = [(s['name'], s['vsize']) for s in sections]
         section_vsize_hashed = FeatureHasher(50, input_type="pair").transform([section_vsize]).toarray()[0]
-        entry_name_hashed = FeatureHasher(50, input_type="string").transform([raw_obj['entry']]).toarray()[0]
+        # FeatureHasher với input_type="string" cần iterable of iterables: [[string]]
+        entry_str = raw_obj['entry'] if raw_obj['entry'] else ""
+        entry_name_hashed = FeatureHasher(50, input_type="string").transform([[entry_str]]).toarray()[0]
         characteristics = [p for s in sections for p in s['props'] if s['name'] == raw_obj['entry']]
-        characteristics_hashed = FeatureHasher(50, input_type="string").transform([characteristics]).toarray()[0]
+        characteristics_hashed = FeatureHasher(50, input_type="string").transform([characteristics] if characteristics else [[]]).toarray()[0]
 
         return np.hstack([
             general, section_sizes_hashed, section_entropy_hashed, section_vsize_hashed, entry_name_hashed,
