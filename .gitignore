@@ -27,9 +27,6 @@ build/
 *.h5
 malconv/*.h5
 
-# Logs
-*.log
-
 venv/
 .venv/
 venv310/
