@@ -1,0 +1,20 @@
+2025-11-01 09:28:59,095 - INFO - Model path: D:\pbl6\ember\ember_model_pycharm.txt
+2025-11-01 09:28:59,095 - INFO - Project root: D:\pbl6\ember
+2025-11-01 09:29:30,308 - INFO - Đang load model...
+2025-11-01 09:29:30,391 - INFO - ✓ Model đã load thành công
+2025-11-01 09:29:30,392 - INFO -   - Số cây: 500
+2025-11-01 09:29:30,392 - INFO -   - Số features: 2,381
+2025-11-01 09:29:30,392 - INFO - Tạo file PE mẫu để test...
+2025-11-01 09:29:31,232 - INFO - Đã tạo file test: D:\pbl6\ember\test_sample.exe
+2025-11-01 09:29:31,232 - INFO - Đang phân tích: test_sample.exe
+2025-11-01 09:29:31,233 - ERROR - Lỗi khi phân tích D:\pbl6\ember\test_sample.exe: module 'lief' has no attribute 'bad_format'
+2025-11-01 09:29:31,234 - INFO - Đã xóa file test
+2025-11-01 09:32:05,201 - INFO - Model path: D:\pbl6\ember\ember_model_pycharm.txt
+2025-11-01 09:32:05,202 - INFO - Project root: D:\pbl6\ember
+2025-11-01 09:32:06,719 - INFO - Đang load model...
+2025-11-01 09:32:06,734 - INFO - ✓ Model đã load thành công
+2025-11-01 09:32:06,734 - INFO -   - Số cây: 500
+2025-11-01 09:32:06,734 - INFO -   - Số features: 2,381
+2025-11-01 09:32:07,089 - INFO - Đang phân tích: LogExport_xhouse_20251030-225609.log
+2025-11-01 09:32:07,097 - ERROR - Lỗi khi phân tích C:\Users\TUF\Downloads\XHouseCrawlData\XHouseCrawlData\output\export\LogExport_xhouse_20251030-225609.log: module 'lief' has no attribute 'bad_format'
+2025-11-01 09:32:07,098 - WARNING - Không có kết quả nào!

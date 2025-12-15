@@ -536,15 +536,37 @@ class PEFeatureExtractor(object):
         self.dim = sum([fe.dim for fe in self.features])
 
     def raw_features(self, bytez):
-        lief_errors = (lief.bad_format, lief.bad_file, lief.pe_error, lief.parser_error, lief.read_out_of_bound,
-                       RuntimeError)
+        # Tương thích với cả LIEF version cũ và mới
         try:
-            lief_binary = lief.PE.parse(list(bytez))
-        except lief_errors as e:
-            print("lief error: ", str(e))
-            lief_binary = None
-        except Exception:  # everything else (KeyboardInterrupt, SystemExit, ValueError):
-            raise
+            # Thử các exception types cho LIEF version cũ
+            try:
+                lief_errors = (lief.bad_format, lief.bad_file, lief.pe_error, lief.parser_error, lief.read_out_of_bound,
+                               RuntimeError)
+            except AttributeError:
+                # LIEF version mới (0.17+) không có các exception types riêng
+                # Dùng Exception chung và kiểm tra message
+                lief_errors = (Exception, RuntimeError, ValueError, AttributeError)
+            
+            try:
+                lief_binary = lief.PE.parse(list(bytez))
+            except lief_errors as e:
+                # Kiểm tra xem có phải lỗi LIEF không (cho version mới)
+                error_msg = str(e).lower()
+                if any(keyword in error_msg for keyword in ['bad format', 'bad file', 'pe error', 'parser error', 'read out of bound']):
+                    print("lief error: ", str(e))
+                    lief_binary = None
+                else:
+                    # Lỗi khác, ném lại
+                    raise
+        except Exception as e:
+            # Kiểm tra xem có phải lỗi parse PE không
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['pe', 'format', 'parse', 'binary']):
+                print("lief error: ", str(e))
+                lief_binary = None
+            else:
+                # Lỗi khác (KeyboardInterrupt, SystemExit, etc.)
+                raise
 
         features = {"sha256": hashlib.sha256(bytez).hexdigest()}
         features.update({fe.name: fe.raw_features(bytez, lief_binary) for fe in self.features})
