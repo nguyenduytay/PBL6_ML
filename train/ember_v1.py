@@ -29,7 +29,8 @@ class EmberTrainer:
         self.ember_dir = self.project_root / "ember"
         # Dataset nằm trong `data/ember2018` DƯỚI project root
         self.data_dir = self.project_root / "data" / "ember2018"
-        self.model_path = self.project_root / "ember_model_pycharm.txt"
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        self.model_path = self.project_root / f"{timestamp}_ember_model_pycharm.txt" 
         
         logger.info(f"Project root: {self.project_root}")
         logger.info(f"Data directory: {self.data_dir}")
