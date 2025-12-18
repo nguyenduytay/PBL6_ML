@@ -27,6 +27,12 @@ build/
 *.h5
 malconv/*.h5
 
+# Log files
+*.log
+ember_*.log
+train/*.log
+*.log.*
+
 venv/
 .venv/
 venv310/
