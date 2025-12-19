@@ -1,6 +1,7 @@
 # Hướng Dẫn Test EMBER Model
 
 Script `test_ember_model.py` dùng để test model EMBER đã train với các file PE thực tế.
+PE = Portable Executable = định dạng file thực thi của Windows
 
 ## 📋 Yêu Cầu
 
