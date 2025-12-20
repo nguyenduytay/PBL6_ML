@@ -599,29 +599,24 @@ class EmberTrainer:
         # BƯỚC 6: CẤU HÌNH LIGHTGBM PARAMETERS
         # ====================================================================
         # LightGBM là thuật toán gradient boosting, cần cấu hình các tham số
-        # Model gốc EMBER2018 dùng các parameters sau (từ scripts/init_ember.py):
-        # - num_leaves: 2048
-        # - max_depth: 15
-        # - min_data_in_leaf: 50
-        # - feature_fraction: 0.5
-        # - learning_rate: 0.05
-        # - num_iterations: 1000
-        # → Dùng GIỐNG HỆT model gốc để đảm bảo kết quả tương đương
+        # Model gốc EMBER2018 dùng num_leaves=2048, nhưng gây nhiều warning
+        # Để giảm warning mà vẫn giữ model lớn, dùng num_leaves=1024
+        # Vẫn train đủ 1000 cây để đảm bảo chất lượng
         params = {
             'objective': 'binary',        # Binary classification (malware/benign)
             'metric': 'auc',              # Metric đánh giá: AUC (Area Under Curve)
             'boosting_type': 'gbdt',      # Gradient Boosting Decision Tree
-            'num_leaves': 2048,           # Số lá trong mỗi cây (GIỐNG MODEL GỐC)
-            'max_depth': 15,              # Độ sâu tối đa (GIỐNG MODEL GỐC - không phải 20)
-            'learning_rate': 0.05,        # Tốc độ học (GIỐNG MODEL GỐC)
-            'feature_fraction': 0.5,      # Dùng 50% features mỗi cây (GIỐNG MODEL GỐC - không phải 0.8)
-            'min_data_in_leaf': 50,       # Tối thiểu 50 samples mỗi lá (GIỐNG MODEL GỐC - không phải 10)
-            'verbose': 0,                 # Không in log chi tiết (dùng callback thay thế)
+            'num_leaves': 1024,           # Giảm từ 2048 xuống 1024 để giảm warning (vẫn lớn, model ~80-100MB)
+            'max_depth': 15,              # Độ sâu tối đa (giống model gốc)
+            'learning_rate': 0.05,        # Tốc độ học (giống model gốc)
+            'feature_fraction': 0.5,      # Dùng 50% features mỗi cây (giống model gốc)
+            'min_data_in_leaf': 50,       # Tối thiểu 50 samples mỗi lá (giống model gốc)
+            'verbose': -1,                # Suppress warnings (giảm warning "No further splits")
             'num_threads': max(1, (os.cpu_count() or 4) // 2),  # Dùng 50% CPU cores
             'force_col_wise': True         # Tối ưu cho dataset lớn (theo cột)
         }
-        # LƯU Ý: Parameters này GIỐNG HỆT model gốc để đảm bảo kết quả tương đương
-        # Có thể vẫn có warning "No further splits" nhưng không ảnh hưởng đến chất lượng model
+        # LƯU Ý: Giảm num_leaves từ 2048 → 1024 để giảm warning, nhưng vẫn train đủ 1000 cây
+        # Model sẽ nhỏ hơn một chút (~80-100MB) nhưng vẫn có chất lượng tốt
         
         # ====================================================================
         # BƯỚC 7: TRAIN MODEL LIGHTGBM
