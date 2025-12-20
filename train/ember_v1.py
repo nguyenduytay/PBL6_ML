@@ -429,7 +429,17 @@ class EmberTrainer:
             return None, None, None
         
         logger.info(f"Tim thay {len(train_feature_files)} train feature files")
-        logger.info(f"Tim thay {test_feature_file.name}")
+        # Hiển thị thông tin chi tiết từng file với progress
+        from tqdm import tqdm
+        total_size = 0
+        for i, file in enumerate(tqdm(train_feature_files, desc="Kiem tra train files", leave=False)):
+            file_size_mb = file.stat().st_size / (1024**2)
+            total_size += file_size_mb
+            logger.info(f"  File {i+1}/{len(train_feature_files)}: {file.name} ({file_size_mb:.1f} MB)")
+        logger.info(f"Tong kich thuoc train files: {total_size:.1f} MB")
+        
+        test_size_mb = test_feature_file.stat().st_size / (1024**2)
+        logger.info(f"Tim thay {test_feature_file.name} ({test_size_mb:.1f} MB)")
         
         # ====================================================================
         # BƯỚC 3: KIỂM TRA FORMAT FILE FEATURES (ĐỊNH DẠNG JSONL)
@@ -565,18 +575,21 @@ class EmberTrainer:
         # ====================================================================
         # Memory-mapped = Không load toàn bộ vào RAM, chỉ map vào memory
         # Lợi ích: Tiết kiệm RAM (dataset rất lớn, vài GB)
+        # Tối ưu: Sử dụng float32 thay vì float64 để tiết kiệm 50% RAM
         logger.info("Loading vectorized features (memory-mapped)...")
         try:
-            # Hàm này load 4 file .dat:
-            # - X_train.dat: Features training (shape: [n_samples, 2381])
-            # - y_train.dat: Labels training (shape: [n_samples]) - 0 hoặc 1
-            # - X_test.dat: Features test (shape: [n_samples, 2381])
-            # - y_test.dat: Labels test (shape: [n_samples]) - 0 hoặc 1
+            # Hàm này load 4 file .dat (đã được tạo với dtype=np.float32):
+            # - X_train.dat: Features training (shape: [n_samples, 2381], dtype: float32)
+            # - y_train.dat: Labels training (shape: [n_samples], dtype: float32) - 0 hoặc 1
+            # - X_test.dat: Features test (shape: [n_samples, 2381], dtype: float32)
+            # - y_test.dat: Labels test (shape: [n_samples], dtype: float32) - 0 hoặc 1
+            # Memory usage: ~800k * 2381 * 4 bytes = ~7.6 GB (float32) vs ~15.2 GB (float64)
             X_train, y_train, X_test, y_test = ember.read_vectorized_features(
                 str(self.data_dir), feature_version=2
             )
             logger.info(f"Train: {X_train.shape[0]:,} samples x {X_train.shape[1]:,} features")
             logger.info(f"Test: {X_test.shape[0]:,} samples x {X_test.shape[1]:,} features")
+            logger.info(f"Data type: {X_train.dtype} (float32 = tiet kiem RAM)")
         except Exception as e:
             logger.error(f"Khong the load vectorized features: {e}")
             logger.error("Hay dam bao da chay create_vectorized_features thanh cong hoac dataset dung dinh dang.")
@@ -636,11 +649,23 @@ class EmberTrainer:
             )
             
             # ================================================================
-            # BƯỚC 8: LƯU MODEL
+            # BƯỚC 8: LƯU MODEL VÀ KIỂM TRA KÍCH THƯỚC
             # ================================================================
             # Lưu model vào file .txt (LightGBM text format, human-readable)
             model.save_model(str(self.model_path))
+            
+            # Kiểm tra kích thước model
+            model_size_mb = self.model_path.stat().st_size / (1024**2)
             logger.info(f"Model da duoc luu: {self.model_path}")
+            logger.info(f"Kich thuoc model: {model_size_mb:.1f} MB")
+            
+            # Cảnh báo nếu model quá lớn
+            if model_size_mb > 200:
+                logger.warning(f"⚠️  Model rat lon ({model_size_mb:.1f} MB > 200 MB). Co the giam num_leaves hoac num_boost_round")
+            elif model_size_mb > 100:
+                logger.warning(f"⚠️  Model kha lon ({model_size_mb:.1f} MB > 100 MB). Hay luu y khi deploy")
+            elif model_size_mb < 50:
+                logger.info(f"✓ Model nho ({model_size_mb:.1f} MB). Co the tang num_leaves de model manh hon")
             
             return model, X_test, y_test
             
@@ -731,14 +756,14 @@ class EmberTrainer:
             return model
     
     # ========================================================================
-    # PHẦN 10: TEST MODEL VỚI FILE MẪU
+    # PHẦN 10: TEST MODEL VỚI FILE MẪU VÀ FILE THỰC TẾ
     # ========================================================================
     def test_model(self, model):
         """
-        Test model với file PE mẫu (tự tạo)
+        Test model với file PE mẫu (tự tạo) và file thực tế (nếu có)
         
         Tạo một file PE giả (chỉ có header MZ và PE) để test xem model có hoạt động không.
-        File này không phải malware thật, chỉ để kiểm tra pipeline.
+        Nếu có thư mục test_files/, sẽ test với các file thực tế trong đó.
         
         Args:
             model: LightGBM model đã train
@@ -752,7 +777,7 @@ class EmberTrainer:
             import ember
             
             # ================================================================
-            # Tạo file PE mẫu (giả)
+            # Test 1: File PE mẫu (giả)
             # ================================================================
             # File PE hợp lệ phải bắt đầu với:
             # - "MZ" (2 bytes đầu) - DOS header
@@ -764,32 +789,71 @@ class EmberTrainer:
             with open(test_file, 'wb') as f:
                 f.write(pe_header)
             
-            # ================================================================
             # Dự đoán với file mẫu
-            # ================================================================
-            # Hàm predict_sample cần file_data (bytes), không phải file path
-            # Quy trình:
-            # 1. Đọc file PE dưới dạng binary (bytes)
-            # 2. Extract features (2381 features) từ bytes
-            # 3. Predict với model
-            # 4. Trả về score (0.0 - 1.0)
             with open(test_file, 'rb') as f:
                 file_data = f.read()
             
             score = ember.predict_sample(model, file_data, feature_version=2)
             
-            # In kết quả
+            # In kết quả file mẫu
             logger.info("=" * 30)
-            logger.info("KET QUA TEST:")
+            logger.info("KET QUA TEST FILE MAU:")
             logger.info("=" * 30)
-            logger.info(f"Malware score: {score:.4f}")  # Ví dụ: 0.1234
-            logger.info(f"Prediction: {'Malware' if score > 0.5 else 'Benign'}")  # > 0.5 = Malware
+            logger.info(f"File: test_sample.exe (file gia)")
+            logger.info(f"Malware score: {score:.4f}")
+            logger.info(f"Prediction: {'Malware' if score > 0.5 else 'Benign'}")
             logger.info("=" * 30)
+            
+            # ================================================================
+            # Test 2: File thực tế (nếu có trong thư mục test_files/)
+            # ================================================================
+            test_dir = self.project_root / "test_files"
+            if test_dir.exists() and test_dir.is_dir():
+                logger.info(f"Tim thay thu muc test_files/, dang test voi file thuc te...")
+                test_results = []
+                
+                # Tìm tất cả file .exe, .dll trong thư mục test
+                test_files = list(test_dir.glob("*.exe")) + list(test_dir.glob("*.dll"))
+                
+                if test_files:
+                    from tqdm import tqdm
+                    for file_path in tqdm(test_files, desc="Test file thuc te"):
+                        try:
+                            with open(file_path, 'rb') as f:
+                                file_data = f.read()
+                            
+                            # Kiểm tra xem có phải file PE không
+                            if file_data[:2] == b'MZ':
+                                score = ember.predict_sample(model, file_data, feature_version=2)
+                                test_results.append({
+                                    'file': file_path.name,
+                                    'score': score,
+                                    'prediction': 'Malware' if score > 0.5 else 'Benign',
+                                    'size_mb': len(file_data) / (1024**2)
+                                })
+                        except Exception as e:
+                            logger.warning(f"Khong the test file {file_path.name}: {e}")
+                    
+                    # In kết quả file thực tế
+                    if test_results:
+                        logger.info("=" * 30)
+                        logger.info("KET QUA TEST FILE THUC TE:")
+                        logger.info("=" * 30)
+                        for result in test_results:
+                            logger.info(f"File: {result['file']:<40} | Score: {result['score']:.4f} | {result['prediction']:<8} | Size: {result['size_mb']:.2f} MB")
+                        logger.info("=" * 30)
+                else:
+                    logger.info("Khong tim thay file .exe hoac .dll trong thu muc test_files/")
+            else:
+                logger.info("Khong co thu muc test_files/. Bo qua test voi file thuc te.")
+                logger.info("Tao thu muc test_files/ va dat file PE vao do de test.")
             
             return model
             
         except Exception as e:
             logger.error(f"Loi test: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return model
     
     # ========================================================================
