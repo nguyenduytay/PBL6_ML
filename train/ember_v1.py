@@ -636,18 +636,20 @@ class EmberTrainer:
             test_data = lgb.Dataset(X_test, label=y_test, reference=train_data, free_raw_data=False)
             
             # Train model
-            # Model gốc train 1000 cây với num_leaves=2048 → model ~124MB
-            # Giảm xuống 1000 cây để model nhỏ hơn và training nhanh hơn
+            # Model gốc train ĐỦ 1000 cây (KHÔNG có valid_sets, KHÔNG early stopping) → model ~124MB
+            # Xem ember/__init__.py dòng 222: lgb.train(params, lgbm_dataset) - chỉ có train_data
+            # → Bỏ valid_sets và early stopping để train đủ 1000 cây giống hệt model gốc
             model = lgb.train(
                 params,                    # Parameters đã cấu hình (num_leaves=2048)
-                train_data,                # Data training
-                valid_sets=[test_data],    # Validation set (để early stopping)
-                num_boost_round=1000,      # Giảm từ 2000 xuống 1000 cây (giống model gốc, model sẽ nhỏ hơn)
+                train_data,                # Data training (GIỐNG MODEL GỐC - chỉ có train_data)
+                num_boost_round=1000,      # Train ĐỦ 1000 cây (giống model gốc)
                 callbacks=[
-                    lgb.early_stopping(100),  # Patience 100 rounds để train đủ cây
-                    lgb.log_evaluation(100)    # In log mỗi 100 rounds
+                    lgb.log_evaluation(100)    # In log mỗi 100 rounds để theo dõi (không có validation score)
                 ]
             )
+            # LƯU Ý: Bỏ valid_sets để giống hệt model gốc (ember/__init__.py không có valid_sets)
+            # Model gốc train đủ 1000 cây → Recall 97.31%, AUC 99.64%
+            # Model với early stopping (553 cây) → Recall 89.56%, AUC 99.29%
             
             # ================================================================
             # BƯỚC 8: LƯU MODEL VÀ KIỂM TRA KÍCH THƯỚC
