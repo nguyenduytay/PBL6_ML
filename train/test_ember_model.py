@@ -256,6 +256,142 @@ class EmberTester:
             
         except Exception as e:
             logger.error(f"Lỗi test mẫu: {e}")
+    
+    def evaluate_model_quality(self, data_dir=None, feature_version=2, sample_size=None):
+        """
+        Đánh giá chất lượng model trên test set từ dataset EMBER2018
+        
+        Args:
+            data_dir: Đường dẫn đến thư mục data/ember2018 (mặc định: project_root/data/ember2018)
+            feature_version: Version của features (mặc định: 2)
+            sample_size: Số samples để test (None = tất cả, hoặc số cụ thể để test nhanh)
+        
+        Returns:
+            dict: Các metrics đánh giá
+        """
+        logger.info("=" * 80)
+        logger.info("ĐÁNH GIÁ CHẤT LƯỢNG MODEL")
+        logger.info("=" * 80)
+        
+        try:
+            import ember
+            import numpy as np
+            from sklearn.metrics import (
+                accuracy_score, precision_score, recall_score,
+                f1_score, roc_auc_score, confusion_matrix,
+                classification_report
+            )
+            
+            # Xác định data directory
+            if data_dir is None:
+                data_dir = self.project_root / "data" / "ember2018"
+            else:
+                data_dir = Path(data_dir)
+            
+            if not data_dir.exists():
+                logger.error(f"Thư mục dataset không tồn tại: {data_dir}")
+                logger.error("Cần có dataset EMBER2018 để đánh giá model")
+                return None
+            
+            logger.info(f"Đang load test set từ: {data_dir}")
+            
+            # Load test set (memory-mapped)
+            X_test, y_test = ember.read_vectorized_features(
+                str(data_dir), subset="test", feature_version=feature_version
+            )
+            
+            logger.info(f"Test set: {X_test.shape[0]:,} samples x {X_test.shape[1]:,} features")
+            
+            # Lấy sample nếu cần (để test nhanh)
+            if sample_size and sample_size < len(y_test):
+                logger.info(f"Chỉ test với {sample_size:,} samples đầu tiên (để test nhanh)")
+                indices = np.random.choice(len(y_test), sample_size, replace=False)
+                X_test = X_test[indices]
+                y_test = y_test[indices]
+            
+            # Dự đoán trên test set
+            logger.info("Đang dự đoán trên test set (có thể mất vài phút)...")
+            y_pred = self.model.predict(X_test)
+            y_pred_binary = (y_pred > 0.5).astype(int)
+            
+            # Tính các metrics
+            accuracy = accuracy_score(y_test, y_pred_binary)
+            precision = precision_score(y_test, y_pred_binary)
+            recall = recall_score(y_test, y_pred_binary)
+            f1 = f1_score(y_test, y_pred_binary)
+            auc = roc_auc_score(y_test, y_pred)
+            
+            # Confusion Matrix
+            cm = confusion_matrix(y_test, y_pred_binary)
+            tn, fp, fn, tp = cm[0,0], cm[0,1], cm[1,0], cm[1,1]
+            
+            # False Positive Rate và False Negative Rate
+            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+            fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
+            
+            # Hiển thị kết quả
+            logger.info("=" * 80)
+            logger.info("KẾT QUẢ ĐÁNH GIÁ CHẤT LƯỢNG MODEL")
+            logger.info("=" * 80)
+            logger.info(f"Test set size: {len(y_test):,} samples")
+            logger.info("")
+            logger.info("📊 METRICS CHÍNH:")
+            logger.info(f"  Accuracy:  {accuracy:.4f} ({accuracy*100:.2f}%)")
+            logger.info(f"  Precision: {precision:.4f} ({precision*100:.2f}%) - Trong số dự đoán Malware, {precision*100:.2f}% đúng")
+            logger.info(f"  Recall:    {recall:.4f} ({recall*100:.2f}%) - Phát hiện được {recall*100:.2f}% số Malware thực tế")
+            logger.info(f"  F1-Score:  {f1:.4f} ({f1*100:.2f}%) - Cân bằng giữa Precision và Recall")
+            logger.info(f"  AUC:       {auc:.4f} ({auc*100:.2f}%) - Khả năng phân biệt Malware/Benign")
+            logger.info("")
+            logger.info("📋 CONFUSION MATRIX:")
+            logger.info(f"                    Dự đoán Benign    Dự đoán Malware")
+            logger.info(f"  Thực tế Benign:   {tn:>10,} (TN)    {fp:>10,} (FP)")
+            logger.info(f"  Thực tế Malware:  {fn:>10,} (FN)    {tp:>10,} (TP)")
+            logger.info("")
+            logger.info("⚠️  TỶ LỆ LỖI:")
+            logger.info(f"  False Positive Rate (FPR): {fpr:.4f} ({fpr*100:.2f}%) - Báo sai Malware")
+            logger.info(f"  False Negative Rate (FNR): {fnr:.4f} ({fnr*100:.2f}%) - Bỏ sót Malware")
+            logger.info("")
+            
+            # Đánh giá chất lượng
+            logger.info("🎯 ĐÁNH GIÁ CHẤT LƯỢNG:")
+            if auc >= 0.99:
+                logger.info("  ✅ AUC >= 0.99: XUẤT SẮC! Model rất tốt")
+            elif auc >= 0.95:
+                logger.info("  ✅ AUC >= 0.95: TỐT! Model có chất lượng cao")
+            elif auc >= 0.90:
+                logger.info("  ⚠️  AUC >= 0.90: KHÁ TỐT, nhưng có thể cải thiện")
+            else:
+                logger.info("  ❌ AUC < 0.90: CẦN CẢI THIỆN model")
+            
+            if precision >= 0.95:
+                logger.info("  ✅ Precision >= 0.95: Ít false positive (báo sai Malware)")
+            else:
+                logger.info(f"  ⚠️  Precision < 0.95: Có {fp:,} false positives")
+            
+            if recall >= 0.90:
+                logger.info("  ✅ Recall >= 0.90: Phát hiện tốt Malware")
+            else:
+                logger.info(f"  ⚠️  Recall < 0.90: Bỏ sót {fn:,} malware ({fnr*100:.2f}%)")
+            
+            logger.info("=" * 80)
+            
+            return {
+                'accuracy': accuracy,
+                'precision': precision,
+                'recall': recall,
+                'f1': f1,
+                'auc': auc,
+                'confusion_matrix': cm,
+                'fpr': fpr,
+                'fnr': fnr,
+                'tn': tn, 'fp': fp, 'fn': fn, 'tp': tp
+            }
+            
+        except Exception as e:
+            logger.error(f"Lỗi đánh giá model: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
 
 
 def main():
@@ -266,13 +402,19 @@ def main():
         epilog="""
 Ví dụ:
   # Test một file
-  python test_ember_model.py -m ember_model_pycharm.txt -f sample.exe
+  python -m train.test_ember_model -m ember_model_pycharm.txt -f sample.exe
   
   # Test cả thư mục
-  python test_ember_model.py -m ember_model_pycharm.txt -d C:\\samples
+  python -m train.test_ember_model -m ember_model_pycharm.txt -d C:\\samples
   
   # Test và lưu kết quả CSV
-  python test_ember_model.py -m ember_model_pycharm.txt -d C:\\samples --csv
+  python -m train.test_ember_model -m ember_model_pycharm.txt -d C:\\samples --csv
+  
+  # Đánh giá chất lượng model trên test set (200k samples)
+  python -m train.test_ember_model -m ember_model_pycharm.txt --evaluate
+  
+  # Đánh giá nhanh với 10k samples
+  python -m train.test_ember_model -m ember_model_pycharm.txt --evaluate --sample-size 10000
         """
     )
     
@@ -314,6 +456,19 @@ Ví dụ:
         help='Test với file mẫu được tạo tự động'
     )
     
+    parser.add_argument(
+        '--evaluate',
+        action='store_true',
+        help='Đánh giá chất lượng model trên test set từ dataset EMBER2018'
+    )
+    
+    parser.add_argument(
+        '--sample-size',
+        type=int,
+        default=None,
+        help='Số samples để test khi đánh giá (mặc định: tất cả, dùng số nhỏ để test nhanh)'
+    )
+    
     args = parser.parse_args()
     
     try:
@@ -331,6 +486,13 @@ Ví dụ:
         # Test thư mục
         elif args.directory:
             results = tester.predict_directory(args.directory, args.feature_version)
+        
+        # Đánh giá chất lượng model
+        elif args.evaluate:
+            metrics = tester.evaluate_model_quality(sample_size=args.sample_size)
+            if metrics:
+                logger.info("✓ Đánh giá hoàn tất!")
+            return
         
         # Test mẫu
         elif args.sample:
