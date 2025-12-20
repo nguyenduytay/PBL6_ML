@@ -586,13 +586,16 @@ class EmberTrainer:
         # BƯỚC 6: CẤU HÌNH LIGHTGBM PARAMETERS
         # ====================================================================
         # LightGBM là thuật toán gradient boosting, cần cấu hình các tham số
+        # Model gốc EMBER2018 dùng num_leaves=2048, nhưng có thể overfit
+        # Dùng num_leaves=512-1024 để cân bằng giữa độ phức tạp và tránh overfit
         params = {
             'objective': 'binary',        # Binary classification (malware/benign)
             'metric': 'auc',              # Metric đánh giá: AUC (Area Under Curve)
             'boosting_type': 'gbdt',      # Gradient Boosting Decision Tree
-            'num_leaves': 31,             # Số lá trong mỗi cây (nhỏ → nhanh, ít overfit)
-            'learning_rate': 0.05,         # Tốc độ học (nhỏ → chậm nhưng chính xác hơn)
-            'feature_fraction': 0.8,       # Dùng 80% features mỗi cây (giảm overfit)
+            'num_leaves': 1024,           # Số lá trong mỗi cây (tăng từ 31 lên 1024 để model mạnh hơn, giống model gốc)
+            'max_depth': 15,              # Độ sâu tối đa của cây (giống model gốc)
+            'learning_rate': 0.05,        # Tốc độ học (nhỏ → chậm nhưng chính xác hơn)
+            'feature_fraction': 0.5,       # Dùng 50% features mỗi cây (giống model gốc, giảm overfit)
             'bagging_fraction': 0.8,       # Dùng 80% samples mỗi cây (giảm overfit)
             'bagging_freq': 1,             # Bagging mỗi 1 iteration
             'min_data_in_leaf': 50,        # Tối thiểu 50 samples mỗi lá (tránh overfit)
