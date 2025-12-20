@@ -100,6 +100,51 @@ class EmberTester:
         self.model = None
         self.load_model()
     
+    def validate_model_file(self):
+        """Kiểm tra file model có đúng format LightGBM không"""
+        try:
+            # Kiểm tra file size
+            file_size = self.model_path.stat().st_size
+            if file_size < 100:  # Model file phải lớn hơn 100 bytes
+                logger.error(f"✗ File model quá nhỏ ({file_size} bytes) - không phải model hợp lệ")
+                return False
+            
+            # Đọc vài dòng đầu để kiểm tra format
+            with open(self.model_path, 'r', encoding='utf-8', errors='ignore') as f:
+                first_lines = []
+                for i, line in enumerate(f):
+                    if i >= 10:  # Đọc 10 dòng đầu
+                        break
+                    first_lines.append(line.strip())
+            
+            # LightGBM model file phải có các keyword đặc trưng
+            content = '\n'.join(first_lines)
+            lightgbm_keywords = [
+                'tree=', 'num_class=', 'num_tree_per_iteration=',
+                'num_feature=', 'num_leaves=', 'split_feature=',
+                'split_gain=', 'threshold=', 'left_child=', 'right_child='
+            ]
+            
+            has_keywords = any(keyword in content for keyword in lightgbm_keywords)
+            
+            if not has_keywords:
+                logger.error(f"✗ File không phải LightGBM model format!")
+                logger.error(f"  File có vẻ chứa dữ liệu số thay vì cấu trúc cây")
+                logger.error(f"  Dòng đầu tiên: {first_lines[0][:100] if first_lines else 'N/A'}")
+                logger.error(f"  Kiểm tra:")
+                logger.error(f"    1. File có phải là model LightGBM không?")
+                logger.error(f"    2. File có bị corrupt hoặc ghi sai không?")
+                logger.error(f"    3. File có phải là feature vector hoặc weights không?")
+                return False
+            
+            logger.debug(f"✓ File model có format hợp lệ (LightGBM)")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⚠️  Không thể validate file model: {e}")
+            logger.warning("  Sẽ thử load trực tiếp...")
+            return True  # Cho phép thử load nếu không validate được
+    
     def load_model(self):
         """Load LightGBM model"""
         try:
@@ -110,10 +155,43 @@ class EmberTester:
             if not self.model_path.is_file():
                 raise FileNotFoundError(f"Model path không phải là file: {self.model_path}")
             
+            # Validate file format trước khi load
+            if not self.validate_model_file():
+                raise ValueError(
+                    f"File model không đúng format LightGBM: {self.model_path}\n"
+                    f"File có vẻ chứa dữ liệu số thay vì cấu trúc cây LightGBM.\n"
+                    f"Kiểm tra xem file có phải là model đã train chưa?"
+                )
+            
             # Thử load model
             model_file_str = str(self.model_path)
             logger.debug(f"Đang load từ: {model_file_str}")
-            self.model = lgb.Booster(model_file=model_file_str)
+            
+            # Wrap trong try-except để bắt lỗi format cụ thể
+            try:
+                self.model = lgb.Booster(model_file=model_file_str)
+            except Exception as load_error:
+                error_msg = str(load_error)
+                if 'Model format error' in error_msg or 'expect a tree here' in error_msg:
+                    logger.error(f"✗ Lỗi: File model không đúng format LightGBM!")
+                    logger.error(f"  LightGBM báo: {error_msg[:200]}")
+                    logger.error(f"  File: {self.model_path}")
+                    logger.error(f"  Kích thước: {self.model_path.stat().st_size / (1024*1024):.2f} MB")
+                    logger.error(f"\n💡 Nguyên nhân có thể:")
+                    logger.error(f"    1. File không phải là LightGBM model (có thể là feature vector/weights)")
+                    logger.error(f"    2. File bị corrupt hoặc ghi sai format")
+                    logger.error(f"    3. File là model của framework khác (XGBoost, sklearn, etc.)")
+                    logger.error(f"    4. File bị encode sai (binary vs text)")
+                    logger.error(f"\n💡 Giải pháp:")
+                    logger.error(f"    1. Kiểm tra file model có được lưu bằng model.save_model() không?")
+                    logger.error(f"    2. Thử train lại model và lưu mới")
+                    logger.error(f"    3. Kiểm tra file model gốc có đúng không")
+                    raise ValueError(
+                        f"File model không đúng format LightGBM. "
+                        f"LightGBM báo lỗi: {error_msg[:100]}"
+                    ) from load_error
+                else:
+                    raise  # Re-raise nếu là lỗi khác
             
             # Hiển thị thông tin model
             num_trees = self.model.num_trees()
@@ -127,6 +205,9 @@ class EmberTester:
             logger.error(f"  Path: {self.model_path}")
             logger.error(f"  Absolute path: {self.model_path.resolve()}")
             raise
+        except ValueError as e:
+            # Đã xử lý ở trên
+            raise
         except Exception as e:
             logger.error(f"✗ Lỗi load model: {e}")
             logger.error(f"  Model path: {self.model_path}")
@@ -134,6 +215,7 @@ class EmberTester:
             logger.error(f"    1. File model có tồn tại không?")
             logger.error(f"    2. File model có bị corrupt không?")
             logger.error(f"    3. LightGBM version có tương thích không?")
+            logger.error(f"    4. File có đúng format LightGBM không?")
             import traceback
             logger.debug(traceback.format_exc())
             raise
