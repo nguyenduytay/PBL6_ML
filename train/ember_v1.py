@@ -24,8 +24,8 @@ import zipfile     # Giải nén file .zip (dataset)
 import shutil      # Thao tác file/folder (copy, move...)
 import logging     # Ghi log để theo dõi quá trình training
 from pathlib import Path  # Xử lý đường dẫn file/folder dễ dàng hơn
-from ember.features import extract_features, predict_sample
-from ember.features import read_vectorized_features, create_vectorized_features
+# Import từ ember package (các hàm này nằm trong ember/__init__.py)
+# Không import extract_features vì không tồn tại, dùng PEFeatureExtractor từ ember.features nếu cần
 
 # ============================================================================
 # PHẦN 2: CẤU HÌNH LOGGING (GHI LOG)
