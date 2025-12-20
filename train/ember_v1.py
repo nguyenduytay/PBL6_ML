@@ -587,21 +587,22 @@ class EmberTrainer:
         # ====================================================================
         # LightGBM là thuật toán gradient boosting, cần cấu hình các tham số
         # Model gốc EMBER2018 dùng num_leaves=2048 để có model lớn (~124MB)
-        # Parameters này giống hệt model gốc để đảm bảo kích thước và hiệu năng tương đương
+        # LƯU Ý: Khi dùng num_leaves lớn, nên BỎ max_depth để model tự quyết định độ sâu
+        # hoặc giảm min_data_in_leaf để có thể tạo đủ leaves
         params = {
             'objective': 'binary',        # Binary classification (malware/benign)
             'metric': 'auc',              # Metric đánh giá: AUC (Area Under Curve)
             'boosting_type': 'gbdt',      # Gradient Boosting Decision Tree
             'num_leaves': 2048,           # Số lá trong mỗi cây (GIỐNG MODEL GỐC - tạo model lớn ~124MB)
-            'max_depth': 15,              # Độ sâu tối đa của cây (giống model gốc)
+            # BỎ max_depth để model tự quyết định độ sâu (tránh conflict với num_leaves=2048)
             'learning_rate': 0.05,        # Tốc độ học (giống model gốc)
             'feature_fraction': 0.5,      # Dùng 50% features mỗi cây (giống model gốc)
-            'min_data_in_leaf': 50,       # Tối thiểu 50 samples mỗi lá (giống model gốc)
+            'min_data_in_leaf': 20,      # Giảm từ 50 xuống 20 để có thể tạo đủ 2048 leaves
             'verbose': 0,                 # Không in log chi tiết (dùng callback thay thế)
             'num_threads': max(1, (os.cpu_count() or 4) // 2),  # Dùng 50% CPU cores
             'force_col_wise': True         # Tối ưu cho dataset lớn (theo cột)
         }
-        # LƯU Ý: Model gốc KHÔNG có bagging_fraction, bagging_freq, lambda_l2
+        # LƯU Ý: Model gốc KHÔNG có bagging_fraction, bagging_freq, lambda_l2, max_depth
         # → Bỏ các tham số này để giống model gốc hơn
         
         # ====================================================================
