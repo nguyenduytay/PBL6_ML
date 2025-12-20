@@ -586,24 +586,23 @@ class EmberTrainer:
         # BƯỚC 6: CẤU HÌNH LIGHTGBM PARAMETERS
         # ====================================================================
         # LightGBM là thuật toán gradient boosting, cần cấu hình các tham số
-        # Model gốc EMBER2018 dùng num_leaves=2048, nhưng có thể overfit
-        # Dùng num_leaves=512-1024 để cân bằng giữa độ phức tạp và tránh overfit
+        # Model gốc EMBER2018 dùng num_leaves=2048 để có model lớn (~124MB)
+        # Parameters này giống hệt model gốc để đảm bảo kích thước và hiệu năng tương đương
         params = {
             'objective': 'binary',        # Binary classification (malware/benign)
             'metric': 'auc',              # Metric đánh giá: AUC (Area Under Curve)
             'boosting_type': 'gbdt',      # Gradient Boosting Decision Tree
-            'num_leaves': 1024,           # Số lá trong mỗi cây (tăng từ 31 lên 1024 để model mạnh hơn, giống model gốc)
+            'num_leaves': 2048,           # Số lá trong mỗi cây (GIỐNG MODEL GỐC - tạo model lớn ~124MB)
             'max_depth': 15,              # Độ sâu tối đa của cây (giống model gốc)
-            'learning_rate': 0.05,        # Tốc độ học (nhỏ → chậm nhưng chính xác hơn)
-            'feature_fraction': 0.5,       # Dùng 50% features mỗi cây (giống model gốc, giảm overfit)
-            'bagging_fraction': 0.8,       # Dùng 80% samples mỗi cây (giảm overfit)
-            'bagging_freq': 1,             # Bagging mỗi 1 iteration
-            'min_data_in_leaf': 50,        # Tối thiểu 50 samples mỗi lá (tránh overfit)
-            'lambda_l2': 0.1,              # L2 regularization (giảm overfit)
+            'learning_rate': 0.05,        # Tốc độ học (giống model gốc)
+            'feature_fraction': 0.5,      # Dùng 50% features mỗi cây (giống model gốc)
+            'min_data_in_leaf': 50,       # Tối thiểu 50 samples mỗi lá (giống model gốc)
             'verbose': 0,                 # Không in log chi tiết (dùng callback thay thế)
             'num_threads': max(1, (os.cpu_count() or 4) // 2),  # Dùng 50% CPU cores
             'force_col_wise': True         # Tối ưu cho dataset lớn (theo cột)
         }
+        # LƯU Ý: Model gốc KHÔNG có bagging_fraction, bagging_freq, lambda_l2
+        # → Bỏ các tham số này để giống model gốc hơn
         
         # ====================================================================
         # BƯỚC 7: TRAIN MODEL LIGHTGBM
@@ -618,15 +617,18 @@ class EmberTrainer:
             test_data = lgb.Dataset(X_test, label=y_test, reference=train_data, free_raw_data=False)
             
             # Train model
-            # num_boost_round: Số cây tối đa (có thể train ít hơn nếu early stopping)
-            # Early stopping sẽ tự động dừng nếu validation score không cải thiện sau 50 rounds
+            # Model gốc train 1000 cây với num_leaves=2048 → model ~124MB
+            # Để model lớn hơn, cần:
+            # 1. num_leaves=2048 (đã set ở trên)
+            # 2. Train đủ số cây (1000-2000 cây)
+            # 3. Tăng early stopping patience để train đủ cây
             model = lgb.train(
-                params,                    # Parameters đã cấu hình
+                params,                    # Parameters đã cấu hình (num_leaves=2048)
                 train_data,                # Data training
                 valid_sets=[test_data],    # Validation set (để early stopping)
-                num_boost_round=2000,      # Tối đa 2000 cây (có thể dừng sớm nếu early stopping)
+                num_boost_round=2000,      # Tối đa 2000 cây (model gốc dùng 1000, nhưng ta train 2000 để model lớn hơn)
                 callbacks=[
-                    lgb.early_stopping(50),   # Dừng nếu không cải thiện sau 50 rounds
+                    lgb.early_stopping(100),  # Tăng patience lên 100 rounds (thay vì 50) để train đủ cây
                     lgb.log_evaluation(100)    # In log mỗi 100 rounds
                 ]
             )
