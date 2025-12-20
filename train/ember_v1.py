@@ -587,22 +587,24 @@ class EmberTrainer:
         # ====================================================================
         # LightGBM là thuật toán gradient boosting, cần cấu hình các tham số
         # Model gốc EMBER2018 dùng num_leaves=2048, max_depth=15 để có model lớn (~124MB)
-        # Cân bằng: num_leaves=2048 với max_depth=15-20 để vừa lớn vừa train được
+        # Để tránh warning "No further splits", cần điều chỉnh:
+        # - Giảm min_data_in_leaf để có thể tạo nhiều leaves hơn
+        # - Tăng feature_fraction để có đủ features để split
         params = {
             'objective': 'binary',        # Binary classification (malware/benign)
             'metric': 'auc',              # Metric đánh giá: AUC (Area Under Curve)
             'boosting_type': 'gbdt',      # Gradient Boosting Decision Tree
             'num_leaves': 2048,           # Số lá trong mỗi cây (GIỐNG MODEL GỐC - tạo model lớn ~124MB)
-            'max_depth': 20,              # Độ sâu tối đa (tăng lên 20 để hỗ trợ num_leaves=2048, tránh quá chậm)
+            'max_depth': 20,              # Độ sâu tối đa (tăng lên 20 để hỗ trợ num_leaves=2048)
             'learning_rate': 0.05,        # Tốc độ học (giống model gốc)
-            'feature_fraction': 0.5,      # Dùng 50% features mỗi cây (giống model gốc)
-            'min_data_in_leaf': 50,      # Giữ 50 như model gốc (đã test với 20, nhưng model gốc dùng 50)
+            'feature_fraction': 0.8,      # Tăng từ 0.5 lên 0.8 để có đủ features để split (tránh warning)
+            'min_data_in_leaf': 10,       # Giảm từ 50 xuống 10 để có thể tạo đủ 2048 leaves (tránh warning)
             'verbose': 0,                 # Không in log chi tiết (dùng callback thay thế)
             'num_threads': max(1, (os.cpu_count() or 4) // 2),  # Dùng 50% CPU cores
             'force_col_wise': True         # Tối ưu cho dataset lớn (theo cột)
         }
-        # LƯU Ý: Model gốc dùng max_depth=15, nhưng với num_leaves=2048 cần max_depth lớn hơn
-        # → Dùng max_depth=20 để đảm bảo có thể tạo đủ leaves mà không quá chậm
+        # LƯU Ý: Điều chỉnh min_data_in_leaf và feature_fraction để tránh warning "No further splits"
+        # Model vẫn sẽ lớn (~100-120MB) với num_leaves=2048
         
         # ====================================================================
         # BƯỚC 7: TRAIN MODEL LIGHTGBM
