@@ -606,7 +606,7 @@ class EmberTrainer:
         # BƯỚC 7: TRAIN MODEL LIGHTGBM
         # ====================================================================
         logger.info("Training model...")
-        logger.info("Thoi gian du kien: 30-60 phut")
+        logger.info("Thoi gian du kien: 90-180 phut (2000 cay, co the dung som hon neu early stopping)")
         
         try:
             # Tạo LightGBM Dataset từ numpy arrays
@@ -615,11 +615,13 @@ class EmberTrainer:
             test_data = lgb.Dataset(X_test, label=y_test, reference=train_data, free_raw_data=False)
             
             # Train model
+            # num_boost_round: Số cây tối đa (có thể train ít hơn nếu early stopping)
+            # Early stopping sẽ tự động dừng nếu validation score không cải thiện sau 50 rounds
             model = lgb.train(
                 params,                    # Parameters đã cấu hình
                 train_data,                # Data training
                 valid_sets=[test_data],    # Validation set (để early stopping)
-                num_boost_round=500,       # Tối đa 500 cây (có thể dừng sớm nếu early stopping)
+                num_boost_round=2000,      # Tối đa 2000 cây (có thể dừng sớm nếu early stopping)
                 callbacks=[
                     lgb.early_stopping(50),   # Dừng nếu không cải thiện sau 50 rounds
                     lgb.log_evaluation(100)    # In log mỗi 100 rounds
