@@ -28,22 +28,73 @@ class EmberTester:
     
     def __init__(self, model_path, project_root=None):
         self.project_root = Path(project_root) if project_root else Path.cwd()
-        self.model_path = Path(model_path) if not Path(model_path).is_absolute() else Path(model_path)
         
-        # Nếu model_path là relative, tìm trong project_root
-        if not self.model_path.is_absolute():
-            self.model_path = self.project_root / self.model_path
+        # Resolve model path (hỗ trợ cả absolute và relative)
+        model_path_obj = Path(model_path)
+        if model_path_obj.is_absolute():
+            self.model_path = model_path_obj
+        else:
+            # Nếu relative, tìm trong project_root
+            self.model_path = self.project_root / model_path_obj
+        
+        # Resolve path (chuyển relative thành absolute)
+        self.model_path = self.model_path.resolve()
+        self.project_root = self.project_root.resolve()
         
         if not self.model_path.exists():
-            raise FileNotFoundError(f"Model file không tồn tại: {self.model_path}")
+            raise FileNotFoundError(
+                f"Model file không tồn tại: {self.model_path}\n"
+                f"Project root: {self.project_root}\n"
+                f"Đang tìm trong: {self.project_root / model_path if not Path(model_path).is_absolute() else model_path}"
+            )
         
         logger.info(f"Model path: {self.model_path}")
         logger.info(f"Project root: {self.project_root}")
         
-        # Setup import path
+        # Setup import path - đảm bảo có thể import ember
         project_root_str = str(self.project_root)
         if project_root_str not in sys.path:
             sys.path.insert(0, project_root_str)
+        
+        # Kiểm tra ember module có tồn tại không
+        try:
+            import ember
+            logger.debug(f"✓ Module ember đã import thành công")
+        except ImportError as e:
+            logger.warning(f"⚠️  Không thể import module 'ember' từ sys.path: {e}")
+            logger.info(f"  Đang thử import trực tiếp từ source...")
+            
+            # Fallback: Import trực tiếp từ file __init__.py
+            ember_dir = self.project_root / "ember"
+            ember_init = ember_dir / "__init__.py"
+            
+            if not ember_init.exists():
+                logger.error(f"✗ Không tìm thấy thư mục ember: {ember_dir}")
+                logger.error(f"  Project root: {self.project_root}")
+                logger.error(f"  sys.path: {sys.path[:3]}...")
+                logger.error(f"  Kiểm tra xem có thư mục 'ember' trong project root không?")
+                logger.error(f"  Thử chạy: export PYTHONPATH={self.project_root}")
+                raise ImportError(
+                    f"Không thể import module 'ember'. "
+                    f"Đảm bảo thư mục 'ember' có trong project root: {self.project_root}"
+                ) from e
+            
+            try:
+                # Import trực tiếp từ file __init__.py
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("ember", ember_init)
+                ember = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(ember)
+                # Lưu vào sys.modules để dùng lại
+                sys.modules['ember'] = ember
+                logger.info(f"✓ Module ember đã import trực tiếp từ: {ember_init}")
+            except Exception as e2:
+                logger.error(f"✗ Lỗi import trực tiếp: {e2}")
+                logger.error(f"  File: {ember_init}")
+                raise ImportError(
+                    f"Không thể import module 'ember' từ {ember_init}. "
+                    f"Kiểm tra file có tồn tại và hợp lệ không?"
+                ) from e2
         
         # Load model
         self.model = None
@@ -54,7 +105,15 @@ class EmberTester:
         try:
             import lightgbm as lgb
             logger.info("Đang load model...")
-            self.model = lgb.Booster(model_file=str(self.model_path))
+            
+            # Kiểm tra file model có đọc được không
+            if not self.model_path.is_file():
+                raise FileNotFoundError(f"Model path không phải là file: {self.model_path}")
+            
+            # Thử load model
+            model_file_str = str(self.model_path)
+            logger.debug(f"Đang load từ: {model_file_str}")
+            self.model = lgb.Booster(model_file=model_file_str)
             
             # Hiển thị thông tin model
             num_trees = self.model.num_trees()
@@ -63,8 +122,20 @@ class EmberTester:
             logger.info(f"  - Số cây: {num_trees:,}")
             logger.info(f"  - Số features: {num_features:,}")
             
+        except FileNotFoundError as e:
+            logger.error(f"✗ Lỗi: File model không tồn tại hoặc không đọc được")
+            logger.error(f"  Path: {self.model_path}")
+            logger.error(f"  Absolute path: {self.model_path.resolve()}")
+            raise
         except Exception as e:
             logger.error(f"✗ Lỗi load model: {e}")
+            logger.error(f"  Model path: {self.model_path}")
+            logger.error(f"  Kiểm tra:")
+            logger.error(f"    1. File model có tồn tại không?")
+            logger.error(f"    2. File model có bị corrupt không?")
+            logger.error(f"    3. LightGBM version có tương thích không?")
+            import traceback
+            logger.debug(traceback.format_exc())
             raise
     
     def is_pe_file(self, file_path):
@@ -119,8 +190,17 @@ class EmberTester:
             import ember
             
             file_path = Path(file_path)
+            # Resolve path (chuyển relative thành absolute)
+            if not file_path.is_absolute():
+                # Thử tìm trong current directory trước
+                if not file_path.exists():
+                    # Thử với absolute path từ project root
+                    file_path = self.project_root / file_path
+            file_path = file_path.resolve()
+            
             if not file_path.exists():
                 logger.error(f"File không tồn tại: {file_path}")
+                logger.error(f"  Đã thử: {file_path.resolve()}")
                 return None
             
             # Kiểm tra xem có phải file PE không
@@ -192,16 +272,26 @@ class EmberTester:
                 'size': len(file_data)
             }
             
+        except ImportError as e:
+            logger.error(f"✗ Lỗi import module: {e}")
+            logger.error("  Kiểm tra:")
+            logger.error("    1. Đã cài đặt ember chưa? (pip install ember)")
+            logger.error("    2. PYTHONPATH có đúng không?")
+            logger.error(f"    3. Thư mục ember có trong: {self.project_root}")
+            return None
         except Exception as e:
             error_msg = str(e)
+            logger.error(f"Lỗi khi phân tích {file_path}: {e}")
             if 'bad_format' in error_msg or 'AttributeError' in error_msg:
-                logger.error(f"Lỗi LIEF version: {error_msg}")
                 logger.error("Đây có thể do:")
                 logger.error("  1. File không phải PE hợp lệ")
-                logger.error("  2. LIEF version không tương thích (đã được sửa)")
+                logger.error("  2. LIEF version không tương thích (cần lief==0.9.0)")
                 logger.error("  3. File bị corrupt hoặc không đọc được")
+            elif 'No such file' in error_msg or 'FileNotFoundError' in error_msg:
+                logger.error(f"  File không tồn tại: {file_path}")
             else:
-                logger.error(f"Lỗi khi phân tích {file_path}: {e}")
+                import traceback
+                logger.debug(f"Traceback:\n{traceback.format_exc()}")
             return None
     
     def predict_directory(self, directory, feature_version=2, extensions=None):
@@ -210,8 +300,21 @@ class EmberTester:
             extensions = ['.exe', '.dll', '.sys', '.scr', '.com', '.bat', '.cmd']
         
         directory = Path(directory)
+        # Resolve path (chuyển relative thành absolute)
+        if not directory.is_absolute():
+            # Thử tìm trong current directory trước
+            if not directory.exists():
+                # Thử với absolute path từ project root
+                directory = self.project_root / directory
+        directory = directory.resolve()
+        
         if not directory.exists():
             logger.error(f"Thư mục không tồn tại: {directory}")
+            logger.error(f"  Đã thử: {directory.resolve()}")
+            return []
+        
+        if not directory.is_dir():
+            logger.error(f"Đường dẫn không phải là thư mục: {directory}")
             return []
         
         logger.info(f"Đang quét thư mục: {directory}")
@@ -467,11 +570,14 @@ Ví dụ:
   # Test một file
   python -m train.test_ember_model -m ember_model_pycharm.txt -f sample.exe
   
-  # Test cả thư mục
+  # Test cả thư mục (Windows)
   python -m train.test_ember_model -m ember_model_pycharm.txt -d C:\\samples
   
+  # Test cả thư mục (Linux/Ubuntu)
+  python -m train.test_ember_model -m ember_model_pycharm.txt -d /home/user/samples
+  
   # Test và lưu kết quả CSV
-  python -m train.test_ember_model -m ember_model_pycharm.txt -d C:\\samples --csv
+  python -m train.test_ember_model -m ember_model_pycharm.txt -d ./samples --csv
   
   # Đánh giá chất lượng model trên test set (200k samples)
   python -m train.test_ember_model -m ember_model_pycharm.txt --evaluate
@@ -535,8 +641,32 @@ Ví dụ:
     args = parser.parse_args()
     
     try:
+        # Kiểm tra dependencies cơ bản trước
+        try:
+            import lightgbm
+            import numpy
+        except ImportError as e:
+            logger.error(f"✗ Thiếu dependency: {e}")
+            logger.error("  Cài đặt: pip install lightgbm numpy")
+            sys.exit(1)
+        
         # Khởi tạo tester
-        tester = EmberTester(args.model)
+        try:
+            tester = EmberTester(args.model)
+        except FileNotFoundError as e:
+            logger.error(f"✗ {e}")
+            logger.error("\n💡 Gợi ý:")
+            logger.error("  1. Kiểm tra đường dẫn model có đúng không?")
+            logger.error("  2. Chạy từ thư mục project root")
+            logger.error(f"  3. Thử dùng đường dẫn tuyệt đối: -m {Path.cwd() / args.model}")
+            sys.exit(1)
+        except ImportError as e:
+            logger.error(f"✗ {e}")
+            logger.error("\n💡 Gợi ý:")
+            logger.error("  1. Đảm bảo thư mục 'ember' có trong project root")
+            logger.error("  2. Set PYTHONPATH: export PYTHONPATH=$(pwd)")
+            logger.error("  3. Chạy từ thư mục project root")
+            sys.exit(1)
         
         results = []
         

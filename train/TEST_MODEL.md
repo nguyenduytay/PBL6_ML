@@ -8,6 +8,7 @@ PE = Portable Executable = định dạng file thực thi của Windows
 - Python 3.8+
 - Model đã train: `ember_model_pycharm.txt`
 - Các dependencies: `lightgbm`, `ember` (đã cài khi train)
+- **Hệ điều hành**: Windows, Linux (Ubuntu), hoặc macOS (script chạy được trên mọi OS, nhưng chỉ test được file PE)
 
 ## 🚀 Cách Sử Dụng
 
@@ -239,6 +240,152 @@ python -m train.test_ember_model -f document.pdf
 2. **Memory**: Model cần ~200MB RAM khi load
 3. **False positives**: Một số file hợp pháp có thể bị nhận diện sai (score 0.5-0.7)
 4. **Log file**: Kết quả được log vào `ember_test.log`
+
+## 🐧 Test Trên Ubuntu/Linux
+
+### ⚠️ Vấn Đề Chính
+
+**EMBER chỉ test được file PE (Windows executables)**, không test được file Linux (ELF format).
+
+Trên Ubuntu/Linux:
+- ❌ **KHÔNG** có file PE mặc định (vì Linux dùng ELF format)
+- ❌ **KHÔNG** thể test file Linux executables (`.elf`, `.so`, `.bin`)
+- ✅ **CÓ THỂ** test file PE nếu bạn có file PE (ví dụ: file từ Windows)
+
+### ✅ Giải Pháp: Test File PE Trên Ubuntu
+
+#### Cách 1: Copy File PE Từ Windows
+
+1. **Copy file PE từ Windows sang Ubuntu:**
+   ```bash
+   # Ví dụ: Copy file từ Windows sang Ubuntu qua SCP
+   scp user@windows:/path/to/file.exe /home/user/samples/
+   
+   # Hoặc dùng USB, network share, v.v.
+   ```
+
+2. **Test file PE trên Ubuntu:**
+   ```bash
+   cd /path/to/ember
+   python -m train.test_ember_model -m ember_model_pycharm.txt -f /home/user/samples/file.exe
+   ```
+
+#### Cách 2: Download File PE Mẫu
+
+1. **Download file PE mẫu từ internet:**
+   ```bash
+   # Ví dụ: Download notepad.exe từ Windows ISO hoặc sample repository
+   wget https://example.com/samples/test.exe -O /tmp/test.exe
+   ```
+
+2. **Test file đã download:**
+   ```bash
+   python -m train.test_ember_model -f /tmp/test.exe
+   ```
+
+#### Cách 3: Tạo File PE Test Đơn Giản
+
+1. **Tạo file PE test đơn giản:**
+   ```python
+   # create_test_pe.py
+   pe_header = b'MZ' + b'\x00' * 58 + b'PE\x00\x00' + b'\x00' * 1000
+   with open('test_sample.exe', 'wb') as f:
+       f.write(pe_header)
+   ```
+
+2. **Chạy script tạo file:**
+   ```bash
+   python create_test_pe.py
+   python -m train.test_ember_model -f test_sample.exe
+   ```
+
+### ❌ Tại Sao Không Test Được File Linux?
+
+**File Linux (ELF format) KHÔNG phải PE format:**
+
+| Format | OS | Header | EMBER Test? |
+|--------|-----|--------|-------------|
+| **PE** | Windows | `MZ` + `PE\x00\x00` | ✅ Có |
+| **ELF** | Linux | `\x7F ELF` | ❌ Không |
+| **Mach-O** | macOS | `FE ED FA CE` | ❌ Không |
+
+**Ví dụ kiểm tra file Linux:**
+```bash
+# Kiểm tra file Linux executable
+file /usr/bin/ls
+# Output: /usr/bin/ls: ELF 64-bit LSB executable, x86-64...
+
+# Kiểm tra header
+hexdump -C /usr/bin/ls | head -1
+# Output: 00000000  7f 45 4c 46 02 01 01 00  ...ELF....
+
+# → File này KHÔNG phải PE, EMBER KHÔNG test được!
+```
+
+### 💡 Ví Dụ Test Trên Ubuntu
+
+```bash
+# 1. Kiểm tra file có phải PE không
+file sample.exe
+# Output: sample.exe: PE32 executable (console) Intel 80386...
+
+# 2. Test file PE
+cd /path/to/ember
+python -m train.test_ember_model -m ember_model_pycharm.txt -f /path/to/sample.exe
+
+# 3. Test nhiều file PE trong thư mục
+python -m train.test_ember_model -d /home/user/pe_samples --csv
+```
+
+### 🔍 Troubleshooting Trên Ubuntu
+
+#### Lỗi: `File không phải file PE hợp lệ!`
+
+**Nguyên nhân**: Bạn đang cố test file Linux (ELF) thay vì file PE.
+
+**Giải pháp**:
+```bash
+# Kiểm tra file format
+file your_file
+# Nếu thấy "ELF" → Đây là file Linux, KHÔNG test được
+# Nếu thấy "PE32" → Đây là file PE, test được
+
+# Chỉ test file PE
+python -m train.test_ember_model -f file_pe.exe  # ✅ Đúng
+python -m train.test_ember_model -f /usr/bin/ls    # ❌ Sai (file Linux)
+```
+
+#### Lỗi: `ModuleNotFoundError: No module named 'ember'`
+
+**Giải pháp**:
+```bash
+# Đảm bảo đang ở project root
+cd /path/to/ember
+
+# Kiểm tra PYTHONPATH
+export PYTHONPATH=/path/to/ember:$PYTHONPATH
+
+# Chạy lại
+python -m train.test_ember_model -f sample.exe
+```
+
+#### Lỗi: `LIEF version warning`
+
+Cảnh báo này không ảnh hưởng, nhưng có thể cài đúng version:
+```bash
+pip install lief==0.9.0
+```
+
+### 📝 Tóm Tắt
+
+| Tình Huống | Test Được? | Giải Pháp |
+|------------|-------------|-----------|
+| File PE trên Ubuntu | ✅ Có | Copy file PE từ Windows hoặc download |
+| File Linux (ELF) | ❌ Không | EMBER không hỗ trợ ELF format |
+| Script chạy trên Ubuntu | ✅ Có | Script Python chạy được trên mọi OS |
+| Model load trên Ubuntu | ✅ Có | LightGBM model chạy được trên mọi OS |
+
+**Kết luận**: Script có thể chạy trên Ubuntu, nhưng **chỉ test được file PE** (Windows executables). Muốn test file Linux, cần model khác được train cho ELF format.
 
 ## 🔍 Troubleshooting
 
