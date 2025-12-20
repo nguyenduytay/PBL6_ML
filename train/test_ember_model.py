@@ -70,11 +70,33 @@ class EmberTester:
     def is_pe_file(self, file_path):
         """Kiểm tra xem file có phải PE file không"""
         try:
+            file_path = Path(file_path)
+            # Kiểm tra file size (file quá nhỏ không thể là PE hợp lệ)
+            if file_path.stat().st_size < 64:
+                return False
+            
             with open(file_path, 'rb') as f:
                 header = f.read(2)
-                # PE file bắt đầu với 'MZ'
-                return header == b'MZ'
-        except:
+                # PE file bắt đầu với 'MZ' (DOS header)
+                if header != b'MZ':
+                    return False
+                
+                # Kiểm tra thêm: Đọc offset PE signature (ở offset 0x3C)
+                # Nếu có PE signature thì chắc chắn là PE file
+                f.seek(0x3C)
+                pe_offset_bytes = f.read(4)
+                if len(pe_offset_bytes) < 4:
+                    return False
+                
+                pe_offset = int.from_bytes(pe_offset_bytes, byteorder='little')
+                if pe_offset < 0 or pe_offset >= file_path.stat().st_size:
+                    return False
+                
+                f.seek(pe_offset)
+                pe_signature = f.read(4)
+                # PE signature phải là "PE\x00\x00"
+                return pe_signature == b'PE\x00\x00'
+        except Exception:
             return False
     
     def predict_file(self, file_path, feature_version=2):
@@ -94,7 +116,15 @@ class EmberTester:
                 logger.warning("File PE phải bắt đầu với 'MZ' header.")
                 return None
             
-            logger.info(f"Đang phân tích: {file_path.name}")
+            # Kiểm tra file size (file quá lớn có thể gây memory issue)
+            file_size = file_path.stat().st_size
+            max_size = 100 * 1024 * 1024  # 100 MB
+            if file_size > max_size:
+                logger.warning(f"⚠️  File quá lớn ({file_size / (1024**2):.1f} MB > {max_size / (1024**2):.1f} MB)")
+                logger.warning("File quá lớn có thể gây memory issue. Bỏ qua file này.")
+                return None
+            
+            logger.info(f"Đang phân tích: {file_path.name} ({file_size / 1024:.1f} KB)")
             
             # Đọc file dưới dạng binary
             with open(file_path, 'rb') as f:

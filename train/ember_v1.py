@@ -596,33 +596,37 @@ class EmberTrainer:
             return None, None, None
         
         # ====================================================================
-        # BƯỚC 6: CẤU HÌNH LIGHTGBM PARAMETERS
+        # BƯỚC 6: CẤU HÌNH LIGHTGBM PARAMETERS (GIỐNG HỆT MODEL GỐC)
         # ====================================================================
-        # LightGBM là thuật toán gradient boosting, cần cấu hình các tham số
-        # Model gốc EMBER2018 dùng num_leaves=2048, nhưng gây nhiều warning
-        # Để giảm warning mà vẫn giữ model lớn, dùng num_leaves=1024
-        # Vẫn train đủ 1000 cây để đảm bảo chất lượng
+        # Model gốc EMBER2018 (từ scripts/init_ember.py):
+        # - num_leaves: 2048
+        # - max_depth: 15
+        # - min_data_in_leaf: 50
+        # - feature_fraction: 0.5
+        # - learning_rate: 0.05
+        # - num_iterations: 1000
+        # → Dùng GIỐNG HỆT để đảm bảo model chuẩn nhất (Recall 97.31%, AUC 99.64%, Model ~124MB)
         params = {
             'objective': 'binary',        # Binary classification (malware/benign)
             'metric': 'auc',              # Metric đánh giá: AUC (Area Under Curve)
             'boosting_type': 'gbdt',      # Gradient Boosting Decision Tree
-            'num_leaves': 1024,           # Giảm từ 2048 xuống 1024 để giảm warning (vẫn lớn, model ~80-100MB)
-            'max_depth': 15,              # Độ sâu tối đa (giống model gốc)
-            'learning_rate': 0.05,        # Tốc độ học (giống model gốc)
-            'feature_fraction': 0.5,      # Dùng 50% features mỗi cây (giống model gốc)
-            'min_data_in_leaf': 50,       # Tối thiểu 50 samples mỗi lá (giống model gốc)
-            'verbose': -1,                # Suppress warnings (giảm warning "No further splits")
+            'num_leaves': 2048,           # Số lá trong mỗi cây (GIỐNG MODEL GỐC - tạo model ~124MB)
+            'max_depth': 15,              # Độ sâu tối đa (GIỐNG MODEL GỐC)
+            'learning_rate': 0.05,        # Tốc độ học (GIỐNG MODEL GỐC)
+            'feature_fraction': 0.5,      # Dùng 50% features mỗi cây (GIỐNG MODEL GỐC)
+            'min_data_in_leaf': 50,       # Tối thiểu 50 samples mỗi lá (GIỐNG MODEL GỐC)
+            'verbose': -1,                # Suppress warnings (có thể vẫn có warning "No further splits" nhưng không ảnh hưởng)
             'num_threads': max(1, (os.cpu_count() or 4) // 2),  # Dùng 50% CPU cores
             'force_col_wise': True         # Tối ưu cho dataset lớn (theo cột)
         }
-        # LƯU Ý: Giảm num_leaves từ 2048 → 1024 để giảm warning, nhưng vẫn train đủ 1000 cây
-        # Model sẽ nhỏ hơn một chút (~80-100MB) nhưng vẫn có chất lượng tốt
+        # LƯU Ý: Parameters này GIỐNG HỆT model gốc để đảm bảo model chuẩn nhất
+        # Có thể vẫn có warning "No further splits" nhưng không ảnh hưởng đến chất lượng model
         
         # ====================================================================
         # BƯỚC 7: TRAIN MODEL LIGHTGBM
         # ====================================================================
         logger.info("Training model...")
-        logger.info("Thoi gian du kien: 30-60 phut (1000 cay, co the dung som hon neu early stopping)")
+        logger.info("Thoi gian du kien: 60-90 phut (1000 cay, KHONG early stopping - giống model gốc)")
         
         try:
             # Tạo LightGBM Dataset từ numpy arrays
@@ -635,16 +639,16 @@ class EmberTrainer:
             # Xem ember/__init__.py dòng 222: lgb.train(params, lgbm_dataset) - chỉ có train_data
             # → Bỏ valid_sets và early stopping để train đủ 1000 cây giống hệt model gốc
             model = lgb.train(
-                params,                    # Parameters đã cấu hình (num_leaves=2048)
+                params,                    # Parameters đã cấu hình (GIỐNG HỆT model gốc: num_leaves=2048)
                 train_data,                # Data training (GIỐNG MODEL GỐC - chỉ có train_data)
-                num_boost_round=1000,      # Train ĐỦ 1000 cây (giống model gốc)
+                num_boost_round=1000,      # Train ĐỦ 1000 cây (GIỐNG MODEL GỐC)
                 callbacks=[
                     lgb.log_evaluation(100)    # In log mỗi 100 rounds để theo dõi (không có validation score)
                 ]
             )
-            # LƯU Ý: Bỏ valid_sets để giống hệt model gốc (ember/__init__.py không có valid_sets)
-            # Model gốc train đủ 1000 cây → Recall 97.31%, AUC 99.64%
-            # Model với early stopping (553 cây) → Recall 89.56%, AUC 99.29%
+            # LƯU Ý: Bỏ valid_sets và early_stopping để giống hệt model gốc
+            # Model gốc train đủ 1000 cây → Recall 97.31%, AUC 99.64%, Model size ~124MB
+            # Model với early stopping (553 cây) → Recall 89.56%, AUC 99.29%, Model size ~112MB
             
             # ================================================================
             # BƯỚC 8: LƯU MODEL VÀ KIỂM TRA KÍCH THƯỚC
