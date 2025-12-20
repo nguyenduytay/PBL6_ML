@@ -101,13 +101,31 @@ class EmberTester:
                 file_data = f.read()
             
             # Dự đoán
+            # Score từ LightGBM là xác suất malware (0.0 = chắc chắn Benign, 1.0 = chắc chắn Malware)
+            # Threshold: score > 0.5 → Malware, score <= 0.5 → Benign
             score = ember.predict_sample(self.model, file_data, feature_version=feature_version)
+            score = float(score)
+            
+            # Xác định prediction và confidence
+            prediction = 'Malware' if score > 0.5 else 'Benign'
+            confidence = max(score, 1 - score) * 100  # Confidence: phần trăm chắc chắn
+            
+            # Cảnh báo nếu score gần threshold (có thể nhầm lẫn)
+            warning = None
+            if 0.4 <= score <= 0.6:
+                warning = "⚠️  Score gần ngưỡng (0.4-0.6) - Có thể cần kiểm tra thêm!"
+            elif prediction == 'Benign' and score > 0.3:
+                warning = "⚠️  Benign nhưng score khá cao (>0.3) - Có thể là suspicious file"
+            elif prediction == 'Malware' and score < 0.7:
+                warning = "⚠️  Malware nhưng score thấp (<0.7) - Có thể là false positive"
             
             return {
                 'file': file_path.name,
                 'path': str(file_path),
-                'score': float(score),
-                'prediction': 'Malware' if score > 0.5 else 'Benign',
+                'score': score,
+                'prediction': prediction,
+                'confidence': confidence,
+                'warning': warning,
                 'size': len(file_data)
             }
             
@@ -177,12 +195,18 @@ class EmberTester:
         
         # Chi tiết từng file
         logger.info("\nChi tiết:")
-        logger.info(f"{'File':<50} | {'Kết quả':<8} | {'Score':<8} | {'Size (KB)':<10}")
-        logger.info("-" * 80)
+        logger.info(f"{'File':<45} | {'Kết quả':<8} | {'Score':<8} | {'Confidence':<10} | {'Size (KB)':<10}")
+        logger.info("-" * 100)
         
         for result in results:
             size_kb = result['size'] / 1024
-            logger.info(f"{result['file']:<50} | {result['prediction']:<8} | {result['score']:<8.4f} | {size_kb:<10.2f}")
+            confidence = result.get('confidence', max(result['score'], 1 - result['score']) * 100)
+            warning = result.get('warning', '')
+            
+            log_line = f"{result['file']:<45} | {result['prediction']:<8} | {result['score']:<8.4f} | {confidence:<10.1f}% | {size_kb:<10.2f}"
+            if warning:
+                log_line += f" {warning}"
+            logger.info(log_line)
         
         # Top malware (score cao nhất)
         if malware_count > 0:
