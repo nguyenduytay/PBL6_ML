@@ -68,34 +68,48 @@ class EmberTester:
             raise
     
     def is_pe_file(self, file_path):
-        """Kiểm tra xem file có phải PE file không"""
+        """
+        Kiểm tra xem file có phải PE file không
+        
+        Logic:
+        - File phải có MZ header (bắt buộc)
+        - Nếu có PE signature thì tốt (PE file hoàn chỉnh)
+        - Nếu không có PE signature nhưng có MZ header thì vẫn cho phép (file PE không hoàn chỉnh hoặc file test)
+        """
         try:
             file_path = Path(file_path)
             # Kiểm tra file size (file quá nhỏ không thể là PE hợp lệ)
-            if file_path.stat().st_size < 64:
+            if file_path.stat().st_size < 2:
                 return False
             
             with open(file_path, 'rb') as f:
                 header = f.read(2)
-                # PE file bắt đầu với 'MZ' (DOS header)
+                # PE file bắt đầu với 'MZ' (DOS header) - BẮT BUỘC
                 if header != b'MZ':
                     return False
                 
-                # Kiểm tra thêm: Đọc offset PE signature (ở offset 0x3C)
-                # Nếu có PE signature thì chắc chắn là PE file
-                f.seek(0x3C)
-                pe_offset_bytes = f.read(4)
-                if len(pe_offset_bytes) < 4:
-                    return False
+                # Kiểm tra PE signature nếu file đủ lớn (>= 64 bytes)
+                file_size = file_path.stat().st_size
+                if file_size >= 64:
+                    try:
+                        # Đọc offset PE signature (ở offset 0x3C)
+                        f.seek(0x3C)
+                        pe_offset_bytes = f.read(4)
+                        if len(pe_offset_bytes) == 4:
+                            pe_offset = int.from_bytes(pe_offset_bytes, byteorder='little')
+                            # Kiểm tra offset hợp lệ
+                            if 0 < pe_offset < file_size:
+                                f.seek(pe_offset)
+                                pe_signature = f.read(4)
+                                # Nếu có PE signature thì chắc chắn là PE file
+                                if pe_signature == b'PE\x00\x00':
+                                    return True
+                    except Exception:
+                        # Nếu không đọc được PE signature, vẫn cho phép nếu có MZ header
+                        pass
                 
-                pe_offset = int.from_bytes(pe_offset_bytes, byteorder='little')
-                if pe_offset < 0 or pe_offset >= file_path.stat().st_size:
-                    return False
-                
-                f.seek(pe_offset)
-                pe_signature = f.read(4)
-                # PE signature phải là "PE\x00\x00"
-                return pe_signature == b'PE\x00\x00'
+                # Nếu có MZ header thì vẫn cho phép (có thể là file PE không hoàn chỉnh hoặc file test)
+                return True
         except Exception:
             return False
     
@@ -110,11 +124,30 @@ class EmberTester:
                 return None
             
             # Kiểm tra xem có phải file PE không
-            if not self.is_pe_file(file_path):
+            is_valid_pe = self.is_pe_file(file_path)
+            if not is_valid_pe:
                 logger.warning(f"⚠️  File '{file_path.name}' không phải file PE hợp lệ!")
                 logger.warning("EMBER chỉ phân tích file PE (Portable Executable): .exe, .dll, .sys, .scr, v.v.")
                 logger.warning("File PE phải bắt đầu với 'MZ' header.")
                 return None
+            
+            # Kiểm tra xem có PE signature đầy đủ không (cảnh báo nếu không có)
+            try:
+                with open(file_path, 'rb') as f:
+                    if file_path.stat().st_size >= 64:
+                        f.seek(0x3C)
+                        pe_offset_bytes = f.read(4)
+                        if len(pe_offset_bytes) == 4:
+                            pe_offset = int.from_bytes(pe_offset_bytes, byteorder='little')
+                            file_size = file_path.stat().st_size
+                            if 0 < pe_offset < file_size:
+                                f.seek(pe_offset)
+                                pe_signature = f.read(4)
+                                if pe_signature != b'PE\x00\x00':
+                                    logger.warning(f"⚠️  File '{file_path.name}' có MZ header nhưng không có PE signature đầy đủ")
+                                    logger.warning("File có thể là file PE không hoàn chỉnh hoặc file test. Vẫn sẽ thử phân tích...")
+            except Exception:
+                pass  # Bỏ qua nếu không kiểm tra được
             
             # Kiểm tra file size (file quá lớn có thể gây memory issue)
             file_size = file_path.stat().st_size
